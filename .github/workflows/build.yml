@@ -20,22 +20,21 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
-
-      - name: Install Android platform
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
-
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.11.1'
-
-      - name: Restore signing key
-        run: base64 -d keystore.b64 > app/release.keystore
-
       - name: Build
         run: |
           set -o pipefail
-          gradle assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
+          {
+            set -x
+            echo "ANDROID_HOME=$ANDROID_HOME"
+            ls "$ANDROID_HOME" "$ANDROID_HOME/platforms" "$ANDROID_HOME/cmdline-tools" || true
+            SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+            (yes | "$SDKM" --licenses > /dev/null) || true
+            "$SDKM" "platforms;android-35" "build-tools;35.0.0" > /dev/null
+            base64 -d keystore.b64 > app/release.keystore
+            curl -sSL https://services.gradle.org/distributions/gradle-8.11.1-bin.zip -o /tmp/gradle.zip
+            unzip -q /tmp/gradle.zip -d /tmp
+            /tmp/gradle-8.11.1/bin/gradle assembleRelease --no-daemon --stacktrace
+          } 2>&1 | tee build.log
 
       - name: Publish release
         env:
@@ -51,5 +50,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ -f build.log ]; then grep -n -E "error:|ERROR|FAILED|What went wrong" -A6 build.log | head -c 50000 > report.log; [ -s report.log ] || tail -c 50000 build.log > report.log; else echo "Failed before the build step." > report.log; fi
-          gh issue create --title "Build failed #${{ github.run_number }}" --body-file report.log
+          {
+            echo '```'
+            if [ -f build.log ]; then
+              grep -n -E "error:|What went wrong|FAILURE" -A8 build.log | head -c 30000
+              echo "----- last lines -----"
+              tail -n 120 build.log | tail -c 25000
+            else
+              echo "No build.log: failed before the build step."
+            fi
+            echo '```'
+          } > report.md
+          gh issue create --title "Build failed #${{ github.run_number }}" --body-file report.md
