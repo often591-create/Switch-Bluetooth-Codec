@@ -51,6 +51,7 @@ public class MainActivity extends Activity {
     private long selLdac;
 
     private BluetoothDevice pendingDev;
+    private final java.util.Set<String> autoAsked = new java.util.HashSet<>();
     private BluetoothCodecConfig pendingCfg;
 
     private final BroadcastReceiver receiver = new BroadcastReceiver() {
@@ -215,9 +216,12 @@ public class MainActivity extends Activity {
         }
         if (st == null && (needAuth || !CodecUtil.isAssociated(this, device))) {
             addHeader(deviceName(device));
-            addText("第一次使用需要授权：按下面的按钮，在系统跳出的视窗里选择这副耳机并按「允许」。授权一次就好，之后不用再按。");
+            addText("第一次连这副耳机需要授权一次：在系统跳出的视窗里选这副耳机并按「允许」。之后再连就不用了。如果视窗没跳出来，按下面的按钮。");
             Button auth = addButton("授权「" + deviceName(device) + "」");
             BluetoothDevice target = device;
+            if (autoAsked.add(target.getAddress())) {
+                handler.postDelayed(() -> associate(target), 400);
+            }
             auth.setOnClickListener(v -> {
                 pendingDev = null;
                 pendingCfg = null;
@@ -283,6 +287,36 @@ public class MainActivity extends Activity {
             codecs.addView(rb);
         }
         root.addView(codecs);
+
+        List<BluetoothCodecConfig> local = null;
+        try {
+            local = st.getCodecsLocalCapabilities();
+        } catch (Exception ignored) {
+        }
+        boolean ldacHidden = false;
+        if (local != null) {
+            StringBuilder off = new StringBuilder();
+            for (BluetoothCodecConfig l : local) {
+                boolean offered = false;
+                for (BluetoothCodecConfig c : caps) {
+                    if (CodecUtil.key(c).equals(CodecUtil.key(l))) offered = true;
+                }
+                if (!offered) {
+                    if (off.length() > 0) off.append("、");
+                    off.append(CodecUtil.name(l));
+                    if (CodecUtil.isLdac(l)) ldacHidden = true;
+                }
+            }
+            if (off.length() > 0) {
+                TextView t = addText("手机支持、但这副耳机目前没开放：" + off);
+                t.setAlpha(0.6f);
+            }
+        }
+        String dn = deviceName(device).toUpperCase();
+        if (ldacHidden && (dn.contains("HUAWEI") || dn.contains("HONOR") || dn.contains("FREEBUDS") || dn.contains("FREECLIP"))) {
+            TextView t = addText("华为耳机要先在耳机那边打开 LDAC：打开「智慧生活 / AI Life」app → 耳机卡片 → 音质与音效 → 选「音质优先」，再回来按刷新，LDAC 就会出现。");
+            t.setTypeface(Typeface.DEFAULT_BOLD);
+        }
 
         addOptions("采样率", selCap.getSampleRate(), CodecUtil.RATE_BITS, CodecUtil.RATE_NAMES, selRate, v -> selRate = v);
         addOptions("位深度", selCap.getBitsPerSample(), CodecUtil.DEPTH_BITS, CodecUtil.DEPTH_NAMES, selBits, v -> selBits = v);
