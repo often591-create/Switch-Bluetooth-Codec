@@ -114,6 +114,11 @@ public class MainActivity extends Activity {
             registerReceiver(receiver, f, Context.RECEIVER_EXPORTED);
             receiverOn = true;
         }
+        android.content.SharedPreferences prefs = getSharedPreferences("app", MODE_PRIVATE);
+        if (!prefs.getBoolean("bulkAuthDone", false)) {
+            prefs.edit().putBoolean("bulkAuthDone", true).apply();
+            handler.postDelayed(() -> startBulkAuth(true), 600);
+        }
         if (a2dp == null) {
             adapter.getProfileProxy(this, new BluetoothProfile.ServiceListener() {
                 @Override
@@ -219,7 +224,7 @@ public class MainActivity extends Activity {
             addText("第一次连这副耳机需要授权一次：在系统跳出的视窗里选这副耳机并按「允许」。之后再连就不用了。如果视窗没跳出来，按下面的按钮。");
             Button auth = addButton("授权「" + deviceName(device) + "」");
             BluetoothDevice target = device;
-            if (autoAsked.add(target.getAddress())) {
+            if (!authBusy && authQueue.isEmpty() && autoAsked.add(target.getAddress())) {
                 handler.postDelayed(() -> associate(target), 400);
             }
             auth.setOnClickListener(v -> {
@@ -339,6 +344,8 @@ public class MainActivity extends Activity {
         Button apply = addButton("套用");
         apply.setOnClickListener(v -> apply());
         addRefreshButton();
+        Button bulk = addButton("一次授权所有已配对的耳机/音箱");
+        bulk.setOnClickListener(v -> startBulkAuth(false));
 
         TextView tip = addText("\n小技巧：下拉通知栏 → 编辑快捷开关，把「蓝牙编码」拖进去，以后点一下就能轮流切换编码。\n\n" +
                 "注意：手机和耳机都要支持的编码才会出现在列表里。第一次切换时系统会请你允许这个 app 管理这副耳机，按「允许」即可。");
@@ -450,18 +457,66 @@ public class MainActivity extends Activity {
         }
     }
 
+    // ---- device authorization (CompanionDeviceManager) ----
+
+    private final java.util.ArrayList<BluetoothDevice> authQueue = new java.util.ArrayList<>();
+    private boolean authBusy;
+
+    /** Queue every paired audio device that isn't authorized yet, then ask for them one after another. */
+    private void startBulkAuth(boolean quietIfNone) {
+        if (adapter == null || authBusy) return;
+        authQueue.clear();
+        java.util.Set<BluetoothDevice> bonded;
+        try {
+            bonded = adapter.getBondedDevices();
+        } catch (SecurityException e) {
+            return;
+        }
+        if (bonded != null) {
+            for (BluetoothDevice d : bonded) {
+                android.bluetooth.BluetoothClass bc = d.getBluetoothClass();
+                boolean audio = bc != null && bc.getMajorDeviceClass() == android.bluetooth.BluetoothClass.Device.Major.AUDIO_VIDEO;
+                if (audio && !CodecUtil.isAssociated(this, d)) authQueue.add(d);
+            }
+        }
+        if (authQueue.isEmpty()) {
+            if (!quietIfNone) toast("已配对的耳机/音箱都授权过了");
+            return;
+        }
+        Toast.makeText(this, "接下来会依序跳出 " + authQueue.size() + " 个授权视窗，每个按「允许」即可", Toast.LENGTH_LONG).show();
+        associateNext();
+    }
+
+    private void associateNext() {
+        if (authQueue.isEmpty()) return;
+        BluetoothDevice d = authQueue.remove(0);
+        autoAsked.add(d.getAddress());
+        associate(d);
+    }
+
+    /** Called once per finished authorization attempt (allowed, denied or failed). */
+    private void onAuthDone() {
+        if (!authBusy) return;
+        authBusy = false;
+        if (!authQueue.isEmpty()) {
+            handler.postDelayed(this::associateNext, 500);
+        } else {
+            applyPending();
+        }
+    }
+
     private void associate(BluetoothDevice d) {
         CompanionDeviceManager cdm = getSystemService(CompanionDeviceManager.class);
         if (cdm == null) {
             toast("这台手机不支持设备授权，无法切换编码。");
             return;
         }
+        authBusy = true;
         BluetoothDeviceFilter filter = new BluetoothDeviceFilter.Builder().setAddress(d.getAddress()).build();
         AssociationRequest req = new AssociationRequest.Builder()
                 .addDeviceFilter(filter)
                 .setSingleDevice(true)
                 .build();
-        toast("请在接下来的视窗中允许管理这个设备");
         cdm.associate(req, getMainExecutor(), new CompanionDeviceManager.Callback() {
             @Override
             public void onAssociationPending(IntentSender sender) {
@@ -469,19 +524,21 @@ public class MainActivity extends Activity {
                     startIntentSenderForResult(sender, REQ_ASSOC, null, 0, 0, 0);
                 } catch (IntentSender.SendIntentException e) {
                     toast("无法打开授权视窗：" + e.getMessage());
+                    onAuthDone();
                 }
             }
 
             @Override
             public void onAssociationCreated(AssociationInfo info) {
-                applyPending();
+                onAuthDone();
             }
 
             @Override
             public void onFailure(CharSequence error) {
-                toast("授权失败：" + error);
+                toast("「" + deviceName(d) + "」授权失败：" + error);
                 pendingDev = null;
                 pendingCfg = null;
+                onAuthDone();
             }
         });
     }
@@ -490,13 +547,11 @@ public class MainActivity extends Activity {
     protected void onActivityResult(int code, int result, Intent data) {
         super.onActivityResult(code, result, data);
         if (code == REQ_ASSOC) {
-            if (result == RESULT_OK) {
-                handler.postDelayed(this::applyPending, 300);
-            } else {
-                toast("没有允许授权，无法切换编码。");
+            if (result != RESULT_OK) {
                 pendingDev = null;
                 pendingCfg = null;
             }
+            handler.postDelayed(this::onAuthDone, 300);
         }
     }
 
