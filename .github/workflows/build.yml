@@ -1,0 +1,55 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android platform
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Restore signing key
+        run: base64 -d keystore.b64 > app/release.keystore
+
+      - name: Build
+        run: |
+          set -o pipefail
+          gradle assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk BtCodecSwitch.apk
+          gh release create "v${{ github.run_number }}" BtCodecSwitch.apk \
+            --title "蓝牙编码切换 v${{ github.run_number }}" \
+            --notes "在手机上下载 BtCodecSwitch.apk 安装即可。" --latest
+
+      - name: Report failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -f build.log ]; then grep -n -E "error:|ERROR|FAILED|What went wrong" -A6 build.log | head -c 50000 > report.log; [ -s report.log ] || tail -c 50000 build.log > report.log; else echo "Failed before the build step." > report.log; fi
+          gh issue create --title "Build failed #${{ github.run_number }}" --body-file report.log

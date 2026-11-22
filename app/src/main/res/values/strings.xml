@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">蓝牙编码切换</string>
+    <string name="tile_name">蓝牙编码</string>
+</resources>
