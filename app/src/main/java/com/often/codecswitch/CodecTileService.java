@@ -73,7 +73,7 @@ public class CodecTileService extends TileService {
 
     private BluetoothCodecStatus status(BluetoothDevice d) {
         try {
-            return a2dp.getCodecStatus(d);
+            return CodecUtil.getStatus(a2dp, d);
         } catch (Exception e) {
             return null;
         }
@@ -126,14 +126,14 @@ public class CodecTileService extends TileService {
         }
         BluetoothCodecConfig next = caps.get((idx + 1) % caps.size());
         try {
-            a2dp.setCodecConfigPreference(d, CodecUtil.build(next, 0, 0, 0));
+            CodecUtil.setConfig(a2dp, d, CodecUtil.build(next, 0, 0, 0));
             Tile t = getQsTile();
             if (t != null) {
                 t.setSubtitle(CodecUtil.name(next) + "…");
                 t.updateTile();
             }
         } catch (Exception e) {
-            Toast.makeText(this, "切换失败：" + e.getMessage(), Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "切换失败：" + CodecUtil.err(e), Toast.LENGTH_SHORT).show();
         }
         handler.postDelayed(this::updateTile, 1500);
     }

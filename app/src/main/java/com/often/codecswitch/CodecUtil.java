@@ -1,6 +1,8 @@
 package com.often.codecswitch;
 
+import android.bluetooth.BluetoothA2dp;
 import android.bluetooth.BluetoothCodecConfig;
+import android.bluetooth.BluetoothCodecStatus;
 import android.bluetooth.BluetoothCodecType;
 import android.bluetooth.BluetoothDevice;
 import android.companion.AssociationInfo;
@@ -9,8 +11,42 @@ import android.content.Context;
 import android.net.MacAddress;
 import android.os.Build;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+
 final class CodecUtil {
     private CodecUtil() {}
+
+    static final String ACTION_CODEC_CONFIG_CHANGED = "android.bluetooth.a2dp.profile.action.CODEC_CONFIG_CHANGED";
+
+    static BluetoothCodecStatus getStatus(BluetoothA2dp a2dp, BluetoothDevice d) throws Exception {
+        Method m = BluetoothA2dp.class.getMethod("getCodecStatus", BluetoothDevice.class);
+        try {
+            return (BluetoothCodecStatus) m.invoke(a2dp, d);
+        } catch (InvocationTargetException e) {
+            throw unwrap(e);
+        }
+    }
+
+    static void setConfig(BluetoothA2dp a2dp, BluetoothDevice d, BluetoothCodecConfig c) throws Exception {
+        Method m = BluetoothA2dp.class.getMethod("setCodecConfigPreference", BluetoothDevice.class, BluetoothCodecConfig.class);
+        try {
+            m.invoke(a2dp, d, c);
+        } catch (InvocationTargetException e) {
+            throw unwrap(e);
+        }
+    }
+
+    private static Exception unwrap(InvocationTargetException e) {
+        Throwable t = e.getCause();
+        if (t instanceof Exception) return (Exception) t;
+        return new RuntimeException(String.valueOf(t));
+    }
+
+    static String err(Throwable t) {
+        String m = t.getMessage();
+        return t.getClass().getSimpleName() + (m == null ? "" : ": " + m);
+    }
 
     static final int[] RATE_BITS = {0x1, 0x2, 0x4, 0x8, 0x10, 0x20};
     static final String[] RATE_NAMES = {"44.1 kHz", "48 kHz", "88.2 kHz", "96 kHz", "176.4 kHz", "192 kHz"};

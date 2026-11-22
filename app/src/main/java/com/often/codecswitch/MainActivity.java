@@ -108,7 +108,7 @@ public class MainActivity extends Activity {
         }
         if (!receiverOn) {
             IntentFilter f = new IntentFilter();
-            f.addAction(BluetoothA2dp.ACTION_CODEC_CONFIG_CHANGED);
+            f.addAction(CodecUtil.ACTION_CODEC_CONFIG_CHANGED);
             f.addAction(BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED);
             f.addAction(BluetoothAdapter.ACTION_STATE_CHANGED);
             registerReceiver(receiver, f, Context.RECEIVER_EXPORTED);
@@ -203,13 +203,16 @@ public class MainActivity extends Activity {
         }
 
         BluetoothCodecStatus st;
+        String readErr = null;
         try {
-            st = a2dp.getCodecStatus(device);
+            st = CodecUtil.getStatus(a2dp, device);
         } catch (Exception e) {
             st = null;
+            readErr = CodecUtil.err(e);
         }
         if (st == null) {
-            addText("读取不到「" + deviceName(device) + "」的编码信息。先播放一下音乐，再按刷新试试。");
+            addText("读取不到「" + deviceName(device) + "」的编码信息。先播放一下音乐，再按刷新试试。"
+                    + (readErr == null ? "" : "\n\n错误信息：" + readErr));
             addRefreshButton();
             return;
         }
@@ -373,10 +376,10 @@ public class MainActivity extends Activity {
     private void doApply(BluetoothDevice d, BluetoothCodecConfig cfg) {
         if (a2dp == null) return;
         try {
-            a2dp.setCodecConfigPreference(d, cfg);
+            CodecUtil.setConfig(a2dp, d, cfg);
             toast("正在切换到 " + CodecUtil.name(cfg) + "…");
         } catch (Exception e) {
-            toast("切换失败：" + e.getMessage());
+            Toast.makeText(this, "切换失败：" + CodecUtil.err(e), Toast.LENGTH_LONG).show();
         }
         selCap = null;
         handler.postDelayed(this::refresh, 1500);
