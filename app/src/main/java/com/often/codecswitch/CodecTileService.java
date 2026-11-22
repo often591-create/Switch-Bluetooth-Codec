@@ -85,7 +85,10 @@ public class CodecTileService extends TileService {
         t.setLabel("蓝牙编码");
         BluetoothDevice d = firstDevice();
         BluetoothCodecStatus st = d == null ? null : status(d);
-        if (st == null) {
+        if (d != null && st == null && !CodecUtil.isAssociated(this, d)) {
+            t.setSubtitle("点我授权");
+            t.setState(Tile.STATE_INACTIVE);
+        } else if (st == null) {
             t.setSubtitle("未连接");
             t.setState(Tile.STATE_INACTIVE);
         } else {

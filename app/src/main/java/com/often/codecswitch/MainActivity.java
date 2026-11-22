@@ -95,7 +95,6 @@ public class MainActivity extends Activity {
 
     private void showNeedPermission() {
         root.removeAllViews();
-        addTitle("蓝牙编码切换");
         addText("需要「附近的设备」权限才能读取和切换蓝牙编码。");
         Button btn = addButton("授予权限");
         btn.setOnClickListener(v -> requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT}, REQ_PERM));
@@ -153,7 +152,6 @@ public class MainActivity extends Activity {
     private void refresh() {
         if (isFinishing()) return;
         root.removeAllViews();
-        addTitle("蓝牙编码切换");
 
         if (adapter == null) {
             addText("这台手机没有蓝牙功能。");
@@ -204,11 +202,29 @@ public class MainActivity extends Activity {
 
         BluetoothCodecStatus st;
         String readErr = null;
+        boolean needAuth = false;
         try {
             st = CodecUtil.getStatus(a2dp, device);
+        } catch (SecurityException e) {
+            st = null;
+            needAuth = true;
+            readErr = CodecUtil.err(e);
         } catch (Exception e) {
             st = null;
             readErr = CodecUtil.err(e);
+        }
+        if (st == null && (needAuth || !CodecUtil.isAssociated(this, device))) {
+            addHeader(deviceName(device));
+            addText("第一次使用需要授权：按下面的按钮，在系统跳出的视窗里选择这副耳机并按「允许」。授权一次就好，之后不用再按。");
+            Button auth = addButton("授权「" + deviceName(device) + "」");
+            BluetoothDevice target = device;
+            auth.setOnClickListener(v -> {
+                pendingDev = null;
+                pendingCfg = null;
+                associate(target);
+            });
+            addRefreshButton();
+            return;
         }
         if (st == null) {
             addText("读取不到「" + deviceName(device) + "」的编码信息。先播放一下音乐，再按刷新试试。"
@@ -386,7 +402,12 @@ public class MainActivity extends Activity {
     }
 
     private void applyPending() {
-        if (pendingDev != null && pendingCfg != null) {
+        if (pendingDev == null || pendingCfg == null) {
+            selCap = null;
+            refresh();
+            return;
+        }
+        {
             BluetoothDevice d = pendingDev;
             BluetoothCodecConfig c = pendingCfg;
             pendingDev = null;
